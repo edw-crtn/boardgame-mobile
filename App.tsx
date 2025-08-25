@@ -1,20 +1,42 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import LoginScreen from "./src/screens/LoginScreen";
+import TablesScreen from "./src/screens/TablesScreen";
+import TableDetailScreen from "./src/screens/TableDetailScreen";
+import { AuthProvider, useAuth } from "./src/lib/auth";
 
-export default function App() {
+export type RootStackParamList = {
+  Login: undefined;
+  Tables: undefined;
+  TableDetail: { id: number };
+};
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+function RootNavigator() {
+  const { token } = useAuth();
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerTitleAlign: "center" }}>
+        {token ? (
+          <>
+            <Stack.Screen name="Tables" component={TablesScreen} options={{ title: "Mes tables" }} />
+            <Stack.Screen name="TableDetail" component={TableDetailScreen} options={{ title: "Table" }} />
+          </>
+        ) : (
+          <Stack.Screen name="Login" component={LoginScreen} options={{ title: "Connexion" }} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return (
+    <AuthProvider>
+      <RootNavigator />
+    </AuthProvider>
+  );
+}
