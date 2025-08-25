@@ -64,7 +64,7 @@ export default function LoginScreen({ navigation }: Props) {
         await signIn(u, password);
       }
 
-      navigation.replace("Tables");
+      
     } catch (e: any) {
       const msg = e?.message || (modeRegister ? "Inscription impossible" : "Connexion impossible");
       Alert.alert("Erreur", msg);

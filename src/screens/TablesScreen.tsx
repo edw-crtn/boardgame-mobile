@@ -17,6 +17,8 @@ import { api } from "../lib/api";
 import { Table } from "../lib/types";
 import Input from "../components/Input";
 import Button from "../components/Button";
+import { MaterialIcons } from "@expo/vector-icons";
+
 
 type Props = NativeStackScreenProps<RootStackParamList, "Tables">;
 
@@ -46,7 +48,7 @@ const theme = {
 };
 
 export default function TablesScreen({ navigation }: Props) {
-  const { token, signOut } = useAuth();
+  const { token, signOut, user } = useAuth(); // <-- on récupère aussi 'user' pour savoir si on est owner
 
   // Liste
   const [loading, setLoading] = useState(true);
@@ -131,14 +133,34 @@ export default function TablesScreen({ navigation }: Props) {
             Retrouve tes groupes et parties
           </Text>
         </View>
-        <View style={{ flexDirection: "row", gap: theme.spacing(4) }}>
-          <Pressable onPress={() => navigation.navigate("Profile")} hitSlop={8}>
-            <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Profil</Text>
+
+        {/* actions droite */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(3) }}>
+          <Pressable
+            onPress={() => navigation.navigate("Profile")}
+            hitSlop={10}
+            accessibilityLabel="Ouvrir le profil"
+          >
+            <MaterialIcons name="person-outline" size={22} color={theme.colors.primary} />
           </Pressable>
-          <Pressable onPress={signOut} hitSlop={8}>
-            <Text style={{ color: theme.colors.text, fontWeight: "600" }}>Logout</Text>
+
+          <Pressable
+            onPress={() => navigation.navigate("ScanQR")}
+            hitSlop={10}
+            accessibilityLabel="Scanner un QR"
+          >
+            <MaterialIcons name="qr-code-scanner" size={22} color={theme.colors.primary} />
+          </Pressable>
+
+          <Pressable
+            onPress={signOut}
+            hitSlop={10}
+            accessibilityLabel="Se déconnecter"
+          >
+            <MaterialIcons name="logout" size={22} color={theme.colors.danger} />
           </Pressable>
         </View>
+
       </View>
 
       {/* Bloc création */}
@@ -188,33 +210,60 @@ export default function TablesScreen({ navigation }: Props) {
           data={tables}
           keyExtractor={(t) => String(t.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => navigation.navigate("TableDetail", { id: item.id })}
-              style={{
-                backgroundColor: theme.colors.surface,
-                padding: theme.spacing(4),
-                borderRadius: theme.radius.m,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                ...theme.shadow.style,
-                marginBottom: theme.spacing(3),
-              }}
-            >
-              <Text style={{ fontWeight: "800", fontSize: 16, color: theme.colors.text }}>{item.name}</Text>
-              {!!item.description && (
-                <Text style={{ color: theme.colors.muted, marginTop: theme.spacing(1), lineHeight: 20 }}>
-                  {item.description}
-                </Text>
-              )}
-              {/* petit chip "Owner" si c'est ta table ? tu peux décommenter si tu veux:
-              {item.ownerId === user?.id && (
-                <View style={{ marginTop: theme.spacing(2), alignSelf: "flex-start", backgroundColor: theme.colors.chip, borderRadius: theme.radius.pill, paddingVertical: 4, paddingHorizontal: 10 }}>
-                  <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Owner</Text>
+          renderItem={({ item }) => {
+            const isOwner = item.ownerId === user?.id;
+            return (
+              <Pressable
+                onPress={() => navigation.navigate("TableDetail", { id: item.id })}
+                style={{
+                  backgroundColor: theme.colors.surface,
+                  padding: theme.spacing(4),
+                  borderRadius: theme.radius.m,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  ...theme.shadow.style,
+                  marginBottom: theme.spacing(3),
+                }}
+              >
+                {/* Ligne titre + action "Inviter via QR" si owner */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: theme.spacing(3) }}>
+                  <Text style={{ fontWeight: "800", fontSize: 16, color: theme.colors.text, flex: 1 }}>
+                    {item.name}
+                  </Text>
+
+                  {isOwner && (
+                    <Pressable
+                      onPress={() => navigation.navigate("InviteQR", { tableId: item.id })}
+                      hitSlop={8}
+                      style={{
+                        backgroundColor: theme.colors.chip,
+                        borderRadius: theme.radius.pill,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Inviter via QR</Text>
+                    </Pressable>
+                  )}
                 </View>
-              )} */}
-            </Pressable>
-          )}
+
+                {!!item.description && (
+                  <Text style={{ color: theme.colors.muted, marginTop: theme.spacing(1), lineHeight: 20 }}>
+                    {item.description}
+                  </Text>
+                )}
+
+                {/* (Optionnel) Badges en bas */}
+                {/* {isOwner && (
+                  <View style={{ marginTop: theme.spacing(2), alignSelf: "flex-start", backgroundColor: theme.colors.chip, borderRadius: theme.radius.pill, paddingVertical: 4, paddingHorizontal: 10 }}>
+                    <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Owner</Text>
+                  </View>
+                )} */}
+              </Pressable>
+            );
+          }}
           ListEmptyComponent={
             <View
               style={{

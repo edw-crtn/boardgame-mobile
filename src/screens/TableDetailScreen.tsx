@@ -43,7 +43,6 @@ const theme = {
     pill: 999,
   },
   shadow: {
-    // iOS shadow; Android utilise elevation
     style: {
       shadowColor: "#000",
       shadowOpacity: 0.08,
@@ -79,7 +78,7 @@ export default function TableDetailScreen({ route, navigation }: Props) {
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
 
-  // Ajout rapide par username
+  // Ajout rapide par username (via modale)
   const [addName, setAddName] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -94,7 +93,7 @@ export default function TableDetailScreen({ route, navigation }: Props) {
   // Ajouter option
   const [addOpt, setAddOpt] = useState<Record<number, string>>({});
 
-  // Créer événement — un seul Date pour date+heure
+  // Créer événement
   const [evCreateDate, setEvCreateDate] = useState<Date>(new Date());
   const [evLoc, setEvLoc] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
@@ -105,6 +104,10 @@ export default function TableDetailScreen({ route, navigation }: Props) {
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+
+  // Nouvelles modales compact
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
   function openEdit() {
     if (!detail) return;
@@ -346,64 +349,63 @@ export default function TableDetailScreen({ route, navigation }: Props) {
             <Text style={styles.description}>{detail.table.description}</Text>
           )}
 
-          {/* Membres */}
+          {/* Membres (compact) */}
           <View style={{ marginTop: theme.spacing(3) }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text style={styles.sectionTitle}>Membres</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(3) }}>
+                {isOwner && (
+                  <Pressable onPress={() => navigation.navigate("PlayerSearch", { tableId })} hitSlop={8}>
+                    <Text style={styles.link}>Rechercher</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => setShowMembersModal(true)} hitSlop={8}>
+                  <Text style={styles.link}>Voir tout</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View
+              style={{
+                marginTop: theme.spacing(2),
+                flexDirection: "row",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: theme.spacing(2),
+              }}
+            >
+              {members.slice(0, 3).map((m) => (
+                <View key={m.id} style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: theme.radius.pill,
+                      backgroundColor: theme.colors.chip,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
+                      {m.username.slice(0, 1).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={{ marginLeft: 6, color: theme.colors.text }}>{m.username}</Text>
+                </View>
+              ))}
+
+              {members.length > 3 && (
+                <Pressable onPress={() => setShowMembersModal(true)}>
+                  <Text style={{ color: theme.colors.muted }}>+{members.length - 3} autres</Text>
+                </Pressable>
+              )}
+
               {isOwner && (
-                <Pressable onPress={() => navigation.navigate("PlayerSearch", { tableId })}>
-                  <Text style={styles.link}>Rechercher des joueurs</Text>
+                <Pressable onPress={() => setShowAddMemberModal(true)} style={{ marginLeft: "auto" }}>
+                  <Text style={styles.link}>+ Ajouter</Text>
                 </Pressable>
               )}
             </View>
-
-            <View style={{ marginTop: theme.spacing(2) }}>
-              {members.map((m) => (
-                <View
-                  key={m.id}
-                  style={{
-                    paddingVertical: theme.spacing(2),
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    borderBottomWidth: 1,
-                    borderBottomColor: theme.colors.border,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
-                    <View
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: theme.radius.pill,
-                        backgroundColor: theme.colors.chip,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
-                        {m.username.slice(0, 1).toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text style={{ color: theme.colors.text, fontWeight: "600" }}>{m.username}</Text>
-                  </View>
-
-                  {isOwner && m.id !== table.ownerId && (
-                    <Pressable onPress={() => removeMember(m.id, m.username)}>
-                      <Text style={{ color: theme.colors.danger, fontWeight: "700" }}>Supprimer</Text>
-                    </Pressable>
-                  )}
-                </View>
-              ))}
-            </View>
-
-            {isOwner && (
-              <View style={{ marginTop: theme.spacing(3), gap: theme.spacing(2) }}>
-                <Text style={styles.subLabel}>Ajouter par nom d’utilisateur</Text>
-                <Input placeholder="ex: alice_93" value={addName} onChangeText={setAddName} autoCapitalize="none" />
-                <Button title={adding ? "Ajout..." : "Ajouter"} onPress={quickAdd} disabled={adding} />
-              </View>
-            )}
           </View>
         </View>
 
@@ -439,12 +441,10 @@ export default function TableDetailScreen({ route, navigation }: Props) {
                     >
                       {!isMe && <Text style={styles.bubbleAuthor}>{item.user.username}</Text>}
 
-                      {/* Texte du message */}
                       <Text style={[styles.bubbleText, isMe ? styles.bubbleTextMe : styles.bubbleTextOther]}>
                         {item.content}
                       </Text>
 
-                      {/* Timestamp */}
                       <Text style={[styles.bubbleTime, isMe ? styles.bubbleTimeMe : styles.bubbleTimeOther]}>
                         {fmtDateTime(item.createdAt)}
                       </Text>
@@ -697,6 +697,86 @@ export default function TableDetailScreen({ route, navigation }: Props) {
         )}
       </KeyboardAvoidingView>
 
+      {/* MODALE — Liste complète des membres */}
+      <Modal visible={showMembersModal} animationType="slide" onRequestClose={() => setShowMembersModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+          <View style={{ padding: theme.spacing(4) }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text }}>Membres</Text>
+              <Pressable onPress={() => setShowMembersModal(false)} hitSlop={8}>
+                <Text style={styles.link}>Fermer</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ marginTop: theme.spacing(3) }}>
+              {members.map((m) => (
+                <View
+                  key={m.id}
+                  style={{
+                    paddingVertical: theme.spacing(2),
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.colors.border,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: theme.radius.pill,
+                        backgroundColor: theme.colors.chip,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
+                        {m.username.slice(0, 1).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: "600" }}>{m.username}</Text>
+                  </View>
+
+                  {isOwner && m.id !== table.ownerId && (
+                    <Pressable onPress={() => removeMember(m.id, m.username)} hitSlop={8}>
+                      <Text style={{ color: theme.colors.danger, fontWeight: "700" }}>Supprimer</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* MODALE — Ajout par nom d’utilisateur */}
+      <Modal visible={showAddMemberModal} animationType="slide" onRequestClose={() => setShowAddMemberModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+          <View style={{ padding: theme.spacing(4) }}>
+            <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text, marginBottom: theme.spacing(3) }}>
+              Ajouter un membre
+            </Text>
+
+            <Text style={styles.subLabel}>Nom d’utilisateur</Text>
+            <Input placeholder="ex: alice_93" value={addName} onChangeText={setAddName} autoCapitalize="none" />
+            <View style={{ height: theme.spacing(2) }} />
+            <Button
+              title={adding ? "Ajout..." : "Ajouter"}
+              onPress={async () => {
+                await quickAdd();
+                setShowAddMemberModal(false);
+              }}
+              disabled={adding}
+            />
+
+            <View style={{ height: theme.spacing(2) }} />
+            <Button variant="secondary" title="Annuler" onPress={() => setShowAddMemberModal(false)} />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
       {/* MODAL ÉDITION TABLE */}
       <Modal visible={editOpen} animationType="slide" onRequestClose={() => setEditOpen(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.surface }}>
@@ -814,10 +894,7 @@ const styles = {
     fontWeight: "700" as const,
   },
 
-  // Par défaut (autres) : texte sombre
-  bubbleText: {
-    // base
-  },
+  bubbleText: {},
   bubbleTextOther: {
     color: theme.colors.text,
   },
@@ -825,7 +902,6 @@ const styles = {
     color: "#fff",
   },
 
-  // Timestamp : par défaut gris, en blanc sur ta bulle
   bubbleTime: {
     marginTop: theme.spacing(1),
     fontSize: 11,

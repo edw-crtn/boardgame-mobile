@@ -7,6 +7,7 @@ import { Table, TableDetail } from "./types";
 // - Appareil réel (Expo Go): http://<IP_DE_TA_MACHINE>:3000
 export const BASE_URL = "http://192.168.178.113:3000";
 
+
 // --- Normalisation des erreurs ---
 const ERROR_MAP: Record<string, string> = {
   INVALID_BODY: "Données invalides.",
@@ -140,11 +141,11 @@ async function createPoll(token: string, tableId: number, question: string, opti
   return handle(res) as Promise<{ ok: true }>;
 }
 
-async function votePoll(token: string, tableId: number, pollId: number, options: string[]) {
+async function votePoll(token: string, tableId: number, pollId: number, option: string[]) {
   const res = await fetch(`${BASE_URL}/api/mobile/tables/${tableId}/polls/${pollId}/vote`, {
     method: "POST",
     headers: headers(token, true),
-    body: JSON.stringify({ options }),
+    body: JSON.stringify({ option }),
   });
   return handle(res) as Promise<{ ok: true }>;
 }
@@ -232,17 +233,38 @@ async function getMyProfile(token: string) {
   return handle(res) as Promise<{ ok: true; user: { id: number; username: string; city?: string; favoriteGames?: string; description?: string } }>;
 }
 
-async function updateMyProfile(
-  token: string,
-  data: { city?: string; favoriteGames?: string; description?: string }
-) {
-  const res = await fetch(`${BASE_URL}/api/mobile/profile/update`, {
+async function updateMyProfile(token: string, data: {
+  city?: string;
+  favoriteGames?: string;
+  description?: string;
+}) {
+  // ➜ même ressource que GET, mais en POST (conforme à ta route)
+  const res = await fetch(`${BASE_URL}/api/mobile/profile`, {
     method: "POST",
-    headers: headers(token, true),
+    headers: headers(token, true), // réutilise ton helper
     body: JSON.stringify(data),
   });
-  return handle(res) as Promise<{ ok: true }>;
+  return handle(res);
 }
+
+
+async function createInviteTokenApi(token: string, tableId: number) {
+  const res = await fetch(`${BASE_URL}/api/mobile/tables/${tableId}/invite/create`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return handle(res) as Promise<{ ok: true; token: string; expiresAt: string }>;
+}
+
+async function redeemInviteApi(token: string, inviteToken: string) {
+  const res = await fetch(`${BASE_URL}/api/mobile/invite/redeem`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ token: inviteToken }),
+  });
+  return handle(res) as Promise<{ ok: true; tableId: number; joined: boolean }>;
+}
+
 
 // Export API
 export const api = {
@@ -284,4 +306,8 @@ export const api = {
   // profile
   getMyProfile,
   updateMyProfile,
+
+  //QR
+  createInviteToken: createInviteTokenApi,
+  redeemInvite: redeemInviteApi,
 };
