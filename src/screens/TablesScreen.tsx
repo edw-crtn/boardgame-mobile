@@ -20,6 +20,31 @@ import Button from "../components/Button";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Tables">;
 
+const theme = {
+  colors: {
+    bg: "#F6F7FB",
+    surface: "#FFFFFF",
+    text: "#111827",
+    muted: "#6B7280",
+    border: "#E5E7EB",
+    primary: "#6C5CE7",
+    primaryDark: "#5948E0",
+    danger: "#E53935",
+    chip: "#EEF2FF",
+  },
+  radius: { s: 10, m: 14, pill: 999 },
+  spacing: (n: number) => n * 4,
+  shadow: {
+    style: {
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 2,
+    } as const,
+  },
+};
+
 export default function TablesScreen({ navigation }: Props) {
   const { token, signOut } = useAuth();
 
@@ -88,26 +113,38 @@ export default function TablesScreen({ navigation }: Props) {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       {/* Header */}
       <View
         style={{
-          padding: 16,
+          paddingHorizontal: theme.spacing(4),
+          paddingTop: theme.spacing(4),
+          paddingBottom: theme.spacing(2),
           flexDirection: "row",
-          justifyContent: "space-between",
           alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
-        <Text style={{ fontSize: 20, fontWeight: "bold" }}>Mes tables</Text>
-        <Pressable onPress={signOut}>
-          <Text>Logout</Text>
-        </Pressable>
+        <View>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: theme.colors.text }}>🎲 Mes tables</Text>
+          <Text style={{ color: theme.colors.muted, marginTop: theme.spacing(1) }}>
+            Retrouve tes groupes et parties
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", gap: theme.spacing(4) }}>
+          <Pressable onPress={() => navigation.navigate("Profile")} hitSlop={8}>
+            <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Profil</Text>
+          </Pressable>
+          <Pressable onPress={signOut} hitSlop={8}>
+            <Text style={{ color: theme.colors.text, fontWeight: "600" }}>Logout</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Bloc création */}
-      <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-        <Pressable onPress={() => setShowCreate((v) => !v)}>
-          <Text style={{ color: "#0066cc", fontWeight: "600" }}>
+      <View style={{ paddingHorizontal: theme.spacing(4), paddingBottom: theme.spacing(2) }}>
+        <Pressable onPress={() => setShowCreate((v) => !v)} hitSlop={8}>
+          <Text style={{ color: theme.colors.primary, fontWeight: "800" }}>
             {showCreate ? "− Annuler" : "+ Créer une table"}
           </Text>
         </Pressable>
@@ -115,21 +152,27 @@ export default function TablesScreen({ navigation }: Props) {
         {showCreate && (
           <View
             style={{
-              marginTop: 12,
-              padding: 12,
-              backgroundColor: "#fff",
-              borderRadius: 12,
-              elevation: 1,
-              gap: 8,
+              marginTop: theme.spacing(3),
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.radius.m,
+              padding: theme.spacing(4),
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              ...theme.shadow.style,
+              gap: theme.spacing(2),
             }}
           >
+            <Text style={{ fontSize: 16, fontWeight: "800", color: theme.colors.text, marginBottom: theme.spacing(1) }}>
+              Nouvelle table
+            </Text>
             <Input placeholder="Nom de la table *" value={name} onChangeText={setName} />
-            <Input
-              placeholder="Description (optionnel)"
-              value={description}
-              onChangeText={setDescription}
+            <Input placeholder="Description (optionnel)" value={description} onChangeText={setDescription} />
+            <Button
+              variant="primary"
+              title={creating ? "Création..." : "Créer"}
+              onPress={onCreate}
+              disabled={creating}
             />
-            <Button title={creating ? "Création..." : "Créer"} onPress={onCreate} disabled={creating} />
           </View>
         )}
       </View>
@@ -141,7 +184,7 @@ export default function TablesScreen({ navigation }: Props) {
         </View>
       ) : (
         <FlatList
-          contentContainerStyle={{ padding: 16, paddingTop: 8 }}
+          contentContainerStyle={{ paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(2), paddingBottom: theme.spacing(4) }}
           data={tables}
           keyExtractor={(t) => String(t.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -149,21 +192,43 @@ export default function TablesScreen({ navigation }: Props) {
             <Pressable
               onPress={() => navigation.navigate("TableDetail", { id: item.id })}
               style={{
-                padding: 16,
-                backgroundColor: "#fff",
-                borderRadius: 12,
-                marginBottom: 12,
-                elevation: 2,
+                backgroundColor: theme.colors.surface,
+                padding: theme.spacing(4),
+                borderRadius: theme.radius.m,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                ...theme.shadow.style,
+                marginBottom: theme.spacing(3),
               }}
             >
-              <Text style={{ fontWeight: "bold", fontSize: 16 }}>{item.name}</Text>
+              <Text style={{ fontWeight: "800", fontSize: 16, color: theme.colors.text }}>{item.name}</Text>
               {!!item.description && (
-                <Text style={{ color: "#555", marginTop: 4 }}>{item.description}</Text>
+                <Text style={{ color: theme.colors.muted, marginTop: theme.spacing(1), lineHeight: 20 }}>
+                  {item.description}
+                </Text>
               )}
+              {/* petit chip "Owner" si c'est ta table ? tu peux décommenter si tu veux:
+              {item.ownerId === user?.id && (
+                <View style={{ marginTop: theme.spacing(2), alignSelf: "flex-start", backgroundColor: theme.colors.chip, borderRadius: theme.radius.pill, paddingVertical: 4, paddingHorizontal: 10 }}>
+                  <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Owner</Text>
+                </View>
+              )} */}
             </Pressable>
           )}
           ListEmptyComponent={
-            <Text style={{ textAlign: "center", marginTop: 32 }}>Aucune table.</Text>
+            <View
+              style={{
+                alignItems: "center",
+                marginTop: theme.spacing(10),
+                paddingHorizontal: theme.spacing(6),
+                gap: theme.spacing(2),
+              }}
+            >
+              <Text style={{ fontSize: 16, fontWeight: "800", color: theme.colors.text }}>Aucune table</Text>
+              <Text style={{ color: theme.colors.muted, textAlign: "center" }}>
+                Crée ta première table pour organiser une partie, discuter et planifier des événements.
+              </Text>
+            </View>
           }
         />
       )}

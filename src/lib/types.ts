@@ -49,3 +49,5 @@ export type LoginSuccess = {
   expiresAt: string;
   user: User;
 };
+
+export type CityCount = { city: string; count: number };

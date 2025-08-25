@@ -4,4 +4,4 @@
 // iOS simulateur (mac) : "http://localhost:3000"
 // Appareil réel : "http://<IP_LAN_DE_TA_MACHINE>:3000"
 
-export const BASE_URL = "http://192.168.178.113:3000"; 
+export const BASE_URL = "http://192.168.178.113:3000"; //à la colloc

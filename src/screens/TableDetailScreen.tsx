@@ -1,4 +1,3 @@
-// src/screens/TableDetailScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,6 +9,7 @@ import {
   SafeAreaView,
   Text,
   View,
+  Modal,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../App";
@@ -20,24 +20,109 @@ import Input from "../components/Input";
 import Button from "../components/Button";
 import { fmtDateTime } from "../lib/utils";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 
 type Props = NativeStackScreenProps<RootStackParamList, "TableDetail">;
+type TabKey = "messages" | "polls" | "events";
 
-export default function TableDetailScreen({ route }: Props) {
+const theme = {
+  colors: {
+    bg: "#F6F7FB",
+    surface: "#FFFFFF",
+    text: "#111827",
+    muted: "#6B7280",
+    border: "#E5E7EB",
+    primary: "#6C5CE7",
+    primaryDark: "#5948E0",
+    danger: "#E53935",
+    chip: "#EEF2FF",
+  },
+  radius: {
+    s: 10,
+    m: 14,
+    pill: 999,
+  },
+  shadow: {
+    // iOS shadow; Android utilise elevation
+    style: {
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 2,
+    } as const,
+  },
+  spacing: (n: number) => n * 4,
+};
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+function dayStr(d: Date) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function timeStr(d: Date) {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export default function TableDetailScreen({ route, navigation }: Props) {
   const tableId = route.params.id;
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const insets = useSafeAreaInsets();
+
+  const [tab, setTab] = useState<TabKey>("messages");
 
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<TableDetail | null>(null);
 
-  // Message composer
+  // Messages
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
 
-  // Sélection de votes par sondage (multi-choix)
-  // pollId -> Set(options)
+  // Ajout rapide par username
+  const [addName, setAddName] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  // Votes (multi-choix par sondage)
   const [voteSel, setVoteSel] = useState<Record<number, Set<string>>>({});
+
+  // Créer sondage
+  const [pollQ, setPollQ] = useState("");
+  const [pollOpts, setPollOpts] = useState("");
+  const [creatingPoll, setCreatingPoll] = useState(false);
+
+  // Ajouter option
+  const [addOpt, setAddOpt] = useState<Record<number, string>>({});
+
+  // Créer événement — un seul Date pour date+heure
+  const [evCreateDate, setEvCreateDate] = useState<Date>(new Date());
+  const [evLoc, setEvLoc] = useState("");
+  const [creatingEvent, setCreatingEvent] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // Édition table (owner)
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  function openEdit() {
+    if (!detail) return;
+    setEditName(detail.table.name);
+    setEditDesc(detail.table.description || "");
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!token || !detail) return;
+    try {
+      await api.editTable(token, tableId, editName.trim(), editDesc.trim() || undefined);
+      setEditOpen(false);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Sauvegarde impossible");
+    }
+  }
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -45,12 +130,8 @@ export default function TableDetailScreen({ route }: Props) {
     try {
       const res = await api.tableDetail(token, tableId);
       setDetail(res);
-
-      // initialise les sélections avec mes votes existants
       const initSel: Record<number, Set<string>> = {};
-      res.polls.forEach((p) => {
-        initSel[p.id] = new Set(p.myVotes || []);
-      });
+      res.polls.forEach((p) => (initSel[p.id] = new Set(p.myVotes || [])));
       setVoteSel(initSel);
     } catch (e: any) {
       Alert.alert("Erreur", e?.message || "Chargement impossible");
@@ -63,6 +144,18 @@ export default function TableDetailScreen({ route }: Props) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const unsub = navigation.addListener("focus", load);
+    return unsub;
+  }, [navigation, load]);
+
+  const isOwner = !!detail && user?.id === detail.table.ownerId;
+  const listBottomPad = useMemo(
+    () => Math.max(insets.bottom, theme.spacing(4)) + (tab === "messages" ? 160 : 40),
+    [insets.bottom, tab]
+  );
+
+  // Actions messages
   async function sendMessage() {
     if (!token || !msg.trim()) return;
     try {
@@ -77,6 +170,32 @@ export default function TableDetailScreen({ route }: Props) {
     }
   }
 
+  // Ajout membre
+  async function quickAdd() {
+    if (!token || !addName.trim()) return;
+    try {
+      setAdding(true);
+      await api.addMember(token, tableId, addName.trim());
+      setAddName("");
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Ajout impossible (êtes-vous propriétaire ?)");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function removeMember(memberId: number, username: string) {
+    if (!token) return;
+    try {
+      await api.removeMember(token, tableId, memberId);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || `Impossible de supprimer ${username}`);
+    }
+  }
+
+  // Votes
   function toggleVote(pollId: number, option: string) {
     setVoteSel((prev) => {
       const next = { ...prev };
@@ -87,14 +206,10 @@ export default function TableDetailScreen({ route }: Props) {
       return next;
     });
   }
-
   async function submitVote(pollId: number) {
     if (!token) return;
     const sel = Array.from(voteSel[pollId] ?? []);
-    if (sel.length === 0) {
-      Alert.alert("Choix requis", "Sélectionne au moins une option.");
-      return;
-    }
+    if (sel.length === 0) return Alert.alert("Choix requis", "Sélectionne au moins une option.");
     try {
       await api.votePoll(token, tableId, pollId, sel);
       await load();
@@ -103,11 +218,110 @@ export default function TableDetailScreen({ route }: Props) {
     }
   }
 
-  const listBottomPad = useMemo(() => Math.max(insets.bottom, 16) + 120, [insets.bottom]);
+  // Créer sondage
+  async function createPoll() {
+    if (!token) return;
+    const opts = Array.from(
+      new Set(
+        pollOpts
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      )
+    );
+    if (!pollQ.trim() || opts.length === 0)
+      return Alert.alert("Incomplet", "Question et au moins une option.");
+    try {
+      setCreatingPoll(true);
+      await api.createPoll(token, tableId, pollQ.trim(), opts);
+      setPollQ("");
+      setPollOpts("");
+      await load();
+      setTab("polls");
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Création du sondage impossible");
+    } finally {
+      setCreatingPoll(false);
+    }
+  }
+
+  async function addOption(pollId: number) {
+    if (!token) return;
+    const opt = (addOpt[pollId] || "").trim();
+    if (!opt) return;
+    try {
+      await api.addPollOption(token, tableId, pollId, opt);
+      setAddOpt((s) => ({ ...s, [pollId]: "" }));
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Ajout d’option impossible");
+    }
+  }
+
+  async function deletePoll(pollId: number) {
+    if (!token) return;
+    try {
+      await api.deletePoll(token, tableId, pollId);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Suppression impossible");
+    }
+  }
+
+  // Events
+  const onChangeDate = (_: DateTimePickerEvent, d?: Date) => {
+    setShowDatePicker(false);
+    if (!d) return;
+    setEvCreateDate((prev) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), prev.getHours(), prev.getMinutes()));
+  };
+  const onChangeTime = (_: DateTimePickerEvent, d?: Date) => {
+    setShowTimePicker(false);
+    if (!d) return;
+    setEvCreateDate((prev) => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate(), d.getHours(), d.getMinutes()));
+  };
+
+  async function createEvent() {
+    if (!token) return;
+    try {
+      setCreatingEvent(true);
+      await api.createEvent(token, tableId, dayStr(evCreateDate), timeStr(evCreateDate), evLoc.trim() || undefined);
+      setEvCreateDate(new Date());
+      setEvLoc("");
+      await load();
+      setTab("events");
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Création de l’événement impossible");
+    } finally {
+      setCreatingEvent(false);
+    }
+  }
+
+  async function editEvent(eventId: number, day: string, time: string, location?: string) {
+    if (!token) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(time)) {
+      return Alert.alert("Format invalide", "Jour: YYYY-MM-DD, Heure: HH:MM.");
+    }
+    try {
+      await api.editEvent(token, tableId, eventId, day, time, location);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Modification impossible");
+    }
+  }
+
+  async function deleteEvent(eventId: number) {
+    if (!token) return;
+    try {
+      await api.deleteEvent(token, tableId, eventId);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Suppression impossible");
+    }
+  }
 
   if (loading || !detail) {
     return (
-      <SafeAreaView style={{ flex: 1, justifyContent: "center" }}>
+      <SafeAreaView style={{ flex: 1, justifyContent: "center", backgroundColor: theme.colors.bg }}>
         <ActivityIndicator />
       </SafeAreaView>
     );
@@ -116,159 +330,520 @@ export default function TableDetailScreen({ route }: Props) {
   const { table, members, messages, polls, events } = detail;
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
-        {/* Header bloc */}
-        <View style={{ padding: 16, backgroundColor: "#fff", elevation: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: "bold" }}>{table.name}</Text>
-          {table.description ? <Text style={{ color: "#555" }}>{table.description}</Text> : null}
-          <Text style={{ marginTop: 8, fontWeight: "600" }}>Membres ({members.length})</Text>
-          <Text>{members.map((m) => m.username).join(", ")}</Text>
-        </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        {/* Header */}
+        <View style={[styles.card, { paddingBottom: theme.spacing(4) }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={styles.title}>{detail.table.name}</Text>
+            {isOwner && (
+              <Pressable onPress={openEdit} hitSlop={8}>
+                <Text style={styles.link}>Modifier</Text>
+              </Pressable>
+            )}
+          </View>
+          {!!detail.table.description && (
+            <Text style={styles.description}>{detail.table.description}</Text>
+          )}
 
-        {/* Contenu scrollable (messages + events + polls) */}
-        <FlatList
-          contentContainerStyle={{ padding: 16, paddingBottom: listBottomPad }}
-          data={messages}
-          keyExtractor={(m) => String(m.id)}
-          keyboardShouldPersistTaps="handled"
-          ListHeaderComponent={
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontWeight: "600", marginBottom: 8 }}>Messages</Text>
-              {messages.length === 0 ? (
-                <Text style={{ color: "#666" }}>Pas encore de messages.</Text>
-              ) : null}
-
-              {/* Events */}
-              <Text style={{ fontWeight: "600", marginVertical: 12 }}>Événements ({events.length})</Text>
-              {events.length === 0 ? (
-                <Text style={{ color: "#666" }}>Aucun événement.</Text>
-              ) : (
-                events.map((e) => (
-                  <Text key={e.id} style={{ marginBottom: 4 }}>
-                    • {e.date}
-                    {e.location ? ` @ ${e.location}` : ""}
-                  </Text>
-                ))
+          {/* Membres */}
+          <View style={{ marginTop: theme.spacing(3) }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+              <Text style={styles.sectionTitle}>Membres</Text>
+              {isOwner && (
+                <Pressable onPress={() => navigation.navigate("PlayerSearch", { tableId })}>
+                  <Text style={styles.link}>Rechercher des joueurs</Text>
+                </Pressable>
               )}
+            </View>
 
-              {/* Polls */}
-              <Text style={{ fontWeight: "600", marginVertical: 12 }}>Sondages ({polls.length})</Text>
-              {polls.length === 0 ? (
-                <Text style={{ color: "#666" }}>Aucun sondage.</Text>
-              ) : (
-                polls.map((p) => {
-                  const total = Object.values(p.results || {}).reduce((a, b) => a + b, 0);
-                  return (
+            <View style={{ marginTop: theme.spacing(2) }}>
+              {members.map((m) => (
+                <View
+                  key={m.id}
+                  style={{
+                    paddingVertical: theme.spacing(2),
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.colors.border,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
                     <View
-                      key={p.id}
                       style={{
-                        backgroundColor: "#fff",
-                        padding: 12,
-                        borderRadius: 12,
-                        elevation: 1,
-                        marginBottom: 12,
+                        width: 28,
+                        height: 28,
+                        borderRadius: theme.radius.pill,
+                        backgroundColor: theme.colors.chip,
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      <Text style={{ fontWeight: "600", marginBottom: 8 }}>{p.question}</Text>
-
-                      {p.options.map((opt) => {
-                        const count = p.results?.[opt] ?? 0;
-                        const pct = total > 0 ? Math.round((count * 100) / total) : 0;
-                        const selected = voteSel[p.id]?.has(opt) ?? false;
-                        const isMine = p.myVotes.includes(opt);
-
-                        return (
-                          <Pressable
-                            key={opt}
-                            onPress={() => toggleVote(p.id, opt)}
-                            style={{ marginBottom: 8 }}
-                          >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              {/* pseudo-checkbox */}
-                              <View
-                                style={{
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: 4,
-                                  borderWidth: 2,
-                                  borderColor: selected ? "#111" : "#aaa",
-                                  backgroundColor: selected ? "#111" : "transparent",
-                                }}
-                              />
-                              <Text style={{ flex: 1 }}>
-                                {opt} {isMine ? "• (mon vote)" : ""}
-                              </Text>
-                              <Text style={{ color: "#555", width: 50, textAlign: "right" }}>
-                                {pct}%
-                              </Text>
-                            </View>
-                            {/* barre de progression */}
-                            <View
-                              style={{
-                                height: 8,
-                                backgroundColor: "#eee",
-                                borderRadius: 4,
-                                overflow: "hidden",
-                                marginTop: 6,
-                              }}
-                            >
-                              <View
-                                style={{
-                                  height: 8,
-                                  width: `${pct}%`,
-                                  backgroundColor: "#111",
-                                }}
-                              />
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-
-                      <Button title="Voter" onPress={() => submitVote(p.id)} />
-                      {total > 0 ? (
-                        <Text style={{ color: "#666", marginTop: 6 }}>{total} vote(s) au total</Text>
-                      ) : null}
+                      <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
+                        {m.username.slice(0, 1).toUpperCase()}
+                      </Text>
                     </View>
-                  );
-                })
-              )}
-            </View>
-          }
-          renderItem={({ item }) => (
-            <View style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
-              <Text style={{ fontWeight: "600" }}>{item.user.username}</Text>
-              <Text>{item.content}</Text>
-              <Text style={{ color: "#888", fontSize: 12 }}>{fmtDateTime(item.createdAt)}</Text>
-            </View>
-          )}
-        />
+                    <Text style={{ color: theme.colors.text, fontWeight: "600" }}>{m.username}</Text>
+                  </View>
 
-        {/* Composer collé en bas, au-dessus des gestes/navigation */}
-        <View
-          style={{
-            padding: 12,
-            paddingBottom: Math.max(insets.bottom, 12),
-            borderTopWidth: 1,
-            borderTopColor: "#eee",
-            backgroundColor: "#fafafa",
-          }}
-        >
-          <Input
-            placeholder="Votre message..."
-            value={msg}
-            onChangeText={setMsg}
-            onSubmitEditing={sendMessage}
-            returnKeyType="send"
-          />
-          <View style={{ height: 8 }} />
-          <Button title={sending ? "Envoi..." : "Envoyer"} onPress={sendMessage} disabled={sending} />
+                  {isOwner && m.id !== table.ownerId && (
+                    <Pressable onPress={() => removeMember(m.id, m.username)}>
+                      <Text style={{ color: theme.colors.danger, fontWeight: "700" }}>Supprimer</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+
+            {isOwner && (
+              <View style={{ marginTop: theme.spacing(3), gap: theme.spacing(2) }}>
+                <Text style={styles.subLabel}>Ajouter par nom d’utilisateur</Text>
+                <Input placeholder="ex: alice_93" value={addName} onChangeText={setAddName} autoCapitalize="none" />
+                <Button title={adding ? "Ajout..." : "Ajouter"} onPress={quickAdd} disabled={adding} />
+              </View>
+            )}
+          </View>
         </View>
+
+        {/* Tabs */}
+        <View style={styles.tabBar}>
+          <TabBtn label="Messages" active={tab === "messages"} onPress={() => setTab("messages")} />
+          <TabBtn label="Sondages" active={tab === "polls"} onPress={() => setTab("polls")} />
+          <TabBtn label="Événements" active={tab === "events"} onPress={() => setTab("events")} />
+        </View>
+
+        {/* CONTENT */}
+        {tab === "messages" && (
+          <>
+            <FlatList
+              contentContainerStyle={{ padding: theme.spacing(4), paddingBottom: listBottomPad }}
+              data={messages}
+              keyExtractor={(m) => String(m.id)}
+              renderItem={({ item }) => {
+                const isMe = item.user.id === user?.id;
+                return (
+                  <View
+                    style={{
+                      marginBottom: theme.spacing(3),
+                      alignItems: isMe ? "flex-end" : "flex-start",
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.bubble,
+                        isMe ? styles.bubbleMe : styles.bubbleOther,
+                        theme.shadow.style,
+                      ]}
+                    >
+                      {!isMe && <Text style={styles.bubbleAuthor}>{item.user.username}</Text>}
+
+                      {/* Texte du message */}
+                      <Text style={[styles.bubbleText, isMe ? styles.bubbleTextMe : styles.bubbleTextOther]}>
+                        {item.content}
+                      </Text>
+
+                      {/* Timestamp */}
+                      <Text style={[styles.bubbleTime, isMe ? styles.bubbleTimeMe : styles.bubbleTimeOther]}>
+                        {fmtDateTime(item.createdAt)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={{ textAlign: "center", color: theme.colors.muted, marginTop: theme.spacing(6) }}>
+                  Pas encore de messages.
+                </Text>
+              }
+            />
+            {/* Composer */}
+            <View
+              style={{
+                padding: theme.spacing(3),
+                paddingBottom: Math.max(insets.bottom, theme.spacing(3)),
+                borderTopWidth: 1,
+                borderTopColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+              }}
+            >
+              <Input
+                placeholder="Votre message..."
+                value={msg}
+                onChangeText={setMsg}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+              />
+              <View style={{ height: theme.spacing(2) }} />
+              <Button title={sending ? "Envoi..." : "Envoyer"} onPress={sendMessage} disabled={sending} />
+            </View>
+          </>
+        )}
+
+        {tab === "polls" && (
+          <FlatList
+            contentContainerStyle={{ padding: theme.spacing(4), paddingBottom: listBottomPad }}
+            data={polls}
+            keyExtractor={(p) => String(p.id)}
+            ListHeaderComponent={
+              <View style={[styles.card, { marginBottom: theme.spacing(3) }]}>
+                <Text style={styles.sectionTitle}>Créer un sondage</Text>
+                <View style={{ height: theme.spacing(2) }} />
+                <Input placeholder="Question" value={pollQ} onChangeText={setPollQ} />
+                <View style={{ height: theme.spacing(2) }} />
+                <Input
+                  placeholder={"Options (1 par ligne)\nEx:\n2025-09-12 19:30\n2025-09-13 18:00"}
+                  value={pollOpts}
+                  onChangeText={setPollOpts}
+                  multiline
+                />
+                <View style={{ height: theme.spacing(2) }} />
+                <Button title={creatingPoll ? "Création..." : "Créer"} onPress={createPoll} disabled={creatingPoll} />
+              </View>
+            }
+            renderItem={({ item }) => {
+              const total = Object.values(item.results || {}).reduce((a, b) => a + b, 0);
+              return (
+                <View style={[styles.card, { marginBottom: theme.spacing(3) }]}>
+                  <Text style={styles.itemTitle}>{item.question}</Text>
+                  <View style={{ height: theme.spacing(1) }} />
+                  {item.options.map((opt) => {
+                    const count = item.results?.[opt] ?? 0;
+                    const pct = total > 0 ? Math.round((count * 100) / total) : 0;
+                    const selected = voteSel[item.id]?.has(opt) ?? false;
+                    const isMine = (item.myVotes || []).includes(opt);
+                    return (
+                      <Pressable key={opt} onPress={() => toggleVote(item.id, opt)} style={{ marginBottom: theme.spacing(2) }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
+                          <View
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 6,
+                              borderWidth: 2,
+                              borderColor: selected ? theme.colors.primary : "#C7C9D1",
+                              backgroundColor: selected ? theme.colors.primary : "transparent",
+                            }}
+                          />
+                          <Text style={{ flex: 1, color: theme.colors.text }}>
+                            {opt} {isMine ? "• (mon vote)" : ""}
+                          </Text>
+                          <Text style={{ color: theme.colors.muted, width: 50, textAlign: "right" }}>{pct}%</Text>
+                        </View>
+                        <View
+                          style={{
+                            height: 8,
+                            backgroundColor: theme.colors.border,
+                            borderRadius: 6,
+                            overflow: "hidden",
+                            marginTop: theme.spacing(1),
+                          }}
+                        >
+                          <View style={{ height: 8, width: `${pct}%`, backgroundColor: theme.colors.primary }} />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                  <View style={{ height: theme.spacing(2) }} />
+                  <Button title="Voter" onPress={() => submitVote(item.id)} />
+
+                  {/* Ajouter une option */}
+                  <View style={{ marginTop: theme.spacing(3), gap: theme.spacing(2) }}>
+                    <Text style={styles.subLabel}>Ajouter une option</Text>
+                    <Input
+                      placeholder="Nouvelle option"
+                      value={addOpt[item.id] || ""}
+                      onChangeText={(t) => setAddOpt((s) => ({ ...s, [item.id]: t }))}
+                    />
+                    <Button title="Ajouter" onPress={() => addOption(item.id)} />
+                  </View>
+
+                  {/* Owner: suppression */}
+                  {isOwner && (
+                    <View style={{ marginTop: theme.spacing(2) }}>
+                      <Button variant="danger" title="Supprimer le sondage" onPress={() => deletePoll(item.id)} />
+                    </View>
+                  )}
+
+                  {total > 0 ? (
+                    <Text style={{ color: theme.colors.muted, marginTop: theme.spacing(1) }}>{total} vote(s) au total</Text>
+                  ) : null}
+                </View>
+              );
+            }}
+          />
+        )}
+
+        {tab === "events" && (
+          <FlatList
+            contentContainerStyle={{ padding: theme.spacing(4), paddingBottom: listBottomPad }}
+            data={events}
+            keyExtractor={(e) => String(e.id)}
+            ListHeaderComponent={
+              isOwner ? (
+                <View style={[styles.card, { marginBottom: theme.spacing(3), gap: theme.spacing(2) }]}>
+                  <Text style={styles.sectionTitle}>Créer un événement</Text>
+
+                  {/* date */}
+                  <Pressable onPress={() => setShowDatePicker(true)} style={styles.pickerRow}>
+                    <View>
+                      <Text style={styles.subLabel}>Jour</Text>
+                      <Text style={{ color: theme.colors.text, fontWeight: "600" }}>{dayStr(evCreateDate)}</Text>
+                    </View>
+                    <Text style={{ color: theme.colors.muted }}>▾</Text>
+                  </Pressable>
+                  {showDatePicker && (
+                    <DateTimePicker
+                      value={evCreateDate}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "inline" : "default"}
+                      onChange={onChangeDate}
+                    />
+                  )}
+
+                  {/* heure */}
+                  <Pressable onPress={() => setShowTimePicker(true)} style={styles.pickerRow}>
+                    <View>
+                      <Text style={styles.subLabel}>Heure</Text>
+                      <Text style={{ color: theme.colors.text, fontWeight: "600" }}>{timeStr(evCreateDate)}</Text>
+                    </View>
+                    <Text style={{ color: theme.colors.muted }}>▾</Text>
+                  </Pressable>
+                  {showTimePicker && (
+                    <DateTimePicker
+                      value={evCreateDate}
+                      mode="time"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      is24Hour
+                      onChange={onChangeTime}
+                    />
+                  )}
+
+                  <Input placeholder="Lieu (optionnel)" value={evLoc} onChangeText={setEvLoc} />
+                  <Button
+                    variant="primary"
+                    title={creatingEvent ? "Création..." : "Créer"}
+                    onPress={createEvent}
+                    disabled={creatingEvent}
+                  />
+                </View>
+              ) : null
+            }
+            renderItem={({ item }) => {
+              const [d, t] = String(item.date).split(" ");
+              let draftDay = d;
+              let draftTime = t;
+              let draftLoc = item.location || "";
+              return (
+                <View style={[styles.card, { marginBottom: theme.spacing(3), gap: theme.spacing(1) }]}>
+                  <Text style={styles.itemTitle}>
+                    {item.date}
+                    {item.location ? ` @ ${item.location}` : ""}
+                  </Text>
+                  {isOwner ? (
+                    <View style={{ gap: theme.spacing(2) }}>
+                      <Text style={styles.subLabel}>Modifier cet événement</Text>
+                      <Input
+                        placeholder="Jour (YYYY-MM-DD)"
+                        defaultValue={d}
+                        onChangeText={(v) => {
+                          draftDay = v;
+                          (item as any)._day = v;
+                        }}
+                      />
+                      <Input
+                        placeholder="Heure (HH:MM)"
+                        defaultValue={t}
+                        onChangeText={(v) => {
+                          draftTime = v;
+                          (item as any)._time = v;
+                        }}
+                      />
+                      <Input
+                        placeholder="Lieu (optionnel)"
+                        defaultValue={item.location || ""}
+                        onChangeText={(v) => {
+                          draftLoc = v;
+                          (item as any)._loc = v;
+                        }}
+                      />
+                      <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>
+                        <Button
+                          variant="primary"
+                          title="Enregistrer"
+                          onPress={() =>
+                            editEvent(
+                              item.id,
+                              (item as any)._day || draftDay,
+                              (item as any)._time || draftTime,
+                              (item as any)._loc ?? draftLoc
+                            )
+                          }
+                        />
+                        <Button variant="danger" title="Supprimer" onPress={() => deleteEvent(item.id)} />
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={{ textAlign: "center", color: theme.colors.muted, marginTop: theme.spacing(6) }}>
+                Aucun événement.
+              </Text>
+            }
+          />
+        )}
       </KeyboardAvoidingView>
+
+      {/* MODAL ÉDITION TABLE */}
+      <Modal visible={editOpen} animationType="slide" onRequestClose={() => setEditOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+          <View style={{ padding: theme.spacing(4) }}>
+            <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text, marginBottom: theme.spacing(3) }}>
+              Modifier la table
+            </Text>
+
+            <Text style={styles.subLabel}>Nom</Text>
+            <Input value={editName} onChangeText={setEditName} />
+            <View style={{ height: theme.spacing(2) }} />
+            <Text style={styles.subLabel}>Description</Text>
+            <Input value={editDesc} onChangeText={setEditDesc} multiline />
+
+            <View style={{ height: theme.spacing(3) }} />
+            <Button variant="primary" title="Enregistrer" onPress={saveEdit} />
+            <View style={{ height: theme.spacing(2) }} />
+            <Button variant="secondary" title="Annuler" onPress={() => setEditOpen(false)} />
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+/** ------- UI bits ------- */
+
+function TabBtn({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flex: 1,
+        paddingVertical: theme.spacing(2.5),
+        borderRadius: theme.radius.pill,
+        backgroundColor: active ? theme.colors.primary : theme.colors.surface,
+        borderWidth: 1,
+        borderColor: active ? theme.colors.primary : theme.colors.border,
+      }}
+    >
+      <Text
+        style={{
+          textAlign: "center",
+          color: active ? "#fff" : theme.colors.text,
+          fontWeight: "800",
+          letterSpacing: 0.3,
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+const styles = {
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.m,
+    padding: theme.spacing(4),
+    marginHorizontal: theme.spacing(4),
+    marginTop: theme.spacing(4),
+    ...theme.shadow.style,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "800" as const,
+    color: theme.colors.text,
+  },
+  description: {
+    color: theme.colors.muted,
+    marginTop: theme.spacing(1),
+    lineHeight: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "800" as const,
+    color: theme.colors.text,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: "700" as const,
+    color: theme.colors.text,
+  },
+  subLabel: {
+    fontSize: 12,
+    color: theme.colors.muted,
+  },
+  link: {
+    color: theme.colors.primary,
+    fontWeight: "700" as const,
+  },
+  tabBar: {
+    flexDirection: "row" as const,
+    gap: theme.spacing(2),
+    paddingHorizontal: theme.spacing(4),
+    paddingTop: theme.spacing(3),
+    paddingBottom: theme.spacing(1),
+  },
+  bubble: {
+    maxWidth: "90%",
+    borderRadius: theme.radius.m,
+    paddingVertical: theme.spacing(3),
+    paddingHorizontal: theme.spacing(3),
+  },
+  bubbleMe: {
+    backgroundColor: theme.colors.primary,
+  },
+  bubbleOther: {
+    backgroundColor: theme.colors.surface,
+  },
+
+  bubbleAuthor: {
+    color: theme.colors.muted,
+    marginBottom: theme.spacing(1),
+    fontWeight: "700" as const,
+  },
+
+  // Par défaut (autres) : texte sombre
+  bubbleText: {
+    // base
+  },
+  bubbleTextOther: {
+    color: theme.colors.text,
+  },
+  bubbleTextMe: {
+    color: "#fff",
+  },
+
+  // Timestamp : par défaut gris, en blanc sur ta bulle
+  bubbleTime: {
+    marginTop: theme.spacing(1),
+    fontSize: 11,
+  },
+  bubbleTimeOther: {
+    color: theme.colors.muted,
+  },
+  bubbleTimeMe: {
+    color: "rgba(255,255,255,0.8)",
+  },
+  pickerRow: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.s,
+    padding: theme.spacing(3),
+    backgroundColor: theme.colors.surface,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+  },
+};
